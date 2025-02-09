@@ -1,0 +1,7 @@
+[package]
+name = "tuner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+xdftuneparser = { version = "0.0.1", path = "../xdftuneparser" }
