@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::os::unix::fs::FileExt;
 
 use xdftuneparser::data_types::{Math, XDFElement};
 use xdftuneparser::parse_buffer;
+
+mod eval;
 
 fn bytes_to_u64(bytes: &[u8]) -> u64 {
     let mut final_bytes = [0; 8];
@@ -17,16 +20,9 @@ fn bytes_to_u64(bytes: &[u8]) -> u64 {
 }
 
 fn do_math(x: u64, math: &Math) -> f64 {
-    eval::eval(
-        &math
-            .expression
-            .as_ref()
-            .unwrap()
-            .replace(&math.vars[0], &x.to_string()),
-    )
-    .unwrap()
-    .as_f64()
-    .unwrap()
+    let mut vars = HashMap::new();
+    vars.insert('X', (x as u32).into());
+    eval::eval(math.expression.as_ref().unwrap(), vars)
 }
 
 fn main() {
@@ -45,10 +41,19 @@ fn main() {
             let addr = edata.mmedaddress.unwrap();
             let mut buf = vec![0; edata.mmedelementsizebits.unwrap() as usize / 8];
             println!("{}:", name);
+            println!("  expr: {}", math.expression.as_ref().unwrap());
             stock_bin.read_exact_at(&mut buf, addr as u64).unwrap();
-            println!("  stock: {:x?}", do_math(bytes_to_u64(&buf), &math));
+            println!(
+                "  stock: {:x?} (raw: {:x})",
+                do_math(bytes_to_u64(&buf), &math),
+                bytes_to_u64(&buf)
+            );
             tuned_bin.read_exact_at(&mut buf, addr as u64).unwrap();
-            println!("  tuned: {:x?}", do_math(bytes_to_u64(&buf), &math));
+            println!(
+                "  tuned: {:x?} (raw: {:x})",
+                do_math(bytes_to_u64(&buf), &math),
+                bytes_to_u64(&buf)
+            );
         }
     } else {
         panic!("Expected full XDF file.");
