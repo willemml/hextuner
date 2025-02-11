@@ -19,19 +19,18 @@ fn bytes_to_u64(bytes: &[u8]) -> u64 {
     u64::from_be_bytes(final_bytes)
 }
 
-fn do_math(x: u64, math: &Math) -> f64 {
-    let mut vars = HashMap::new();
-    vars.insert('X', (x as u32).into());
-    eval::eval(math.expression.as_ref().unwrap(), vars)
-}
-
 fn print_value(name: &str, math: &Math, edata: &EmbeddedData, bin: &File) {
     let addr = edata.mmedaddress.unwrap();
     let mut buf = vec![0; edata.mmedelementsizebits.unwrap() as usize / 8];
     bin.read_exact_at(&mut buf, addr as u64).unwrap();
     let asint = bytes_to_u64(&buf);
-    let display = do_math(asint, &math);
-    println!("  {}: {} (raw: {})", name, display, asint);
+    let expression = math.expression.as_ref().unwrap();
+    let display = eval::eval(expression, asint as u32);
+    let rev = eval::eval_reverse(expression, display).round() as u32;
+    println!(
+        "  {}: {} (raw: {}, reversed: {})",
+        name, display, asint, rev
+    );
 }
 
 fn main() {

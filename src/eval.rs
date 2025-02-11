@@ -55,30 +55,47 @@ macro_rules! do_op {
                 }   } };
 }
 
-// if there is more than one variable this doesnt work unless you are lucky
+macro_rules! rev {
+    ($a:ident, $b:ident, $action:ident, $ops:ident) => {{
+        let av = $a.has_var();
+        let bv = $b.has_var();
+        assert_ne!(av, bv);
+
+        if av {
+            $ops.append(&mut $a.rev());
+            $ops.push(Action::$action($b.to_f64()));
+        } else {
+            $ops.append(&mut $b.rev());
+            $ops.push(Action::$action($a.to_f64()));
+        }
+    }};
+}
+
+macro_rules! set {
+    ($a:ident,$b:ident,$vars:ident,$type:ident) => {
+        Atom::$type(Box::new($a.set_vars($vars)), Box::new($b.set_vars($vars)))
+    };
+}
+
+// if there is more than one variable this doesnt work
 impl Atom {
-    fn binvert(self) -> Box<Self> {
-        Box::new(self.invert())
-    }
-    fn invert(self) -> Self {
+    fn rev(self) -> Vec<Action> {
+        assert!(self.has_var());
+        let mut ops = Vec::new();
         match self {
-            Atom::Add(a, b) => {
-                if b.has_var() {
-                    Atom::Sub(b.binvert(), a.binvert())
-                } else {
-                    Atom::Sub(a.binvert(), b.binvert())
-                }
-            }
-            Atom::Sub(a, b) => Atom::Add(a.binvert(), b.binvert()),
-            Atom::Div(a, b) => Atom::Mul(a.binvert(), b.binvert()),
-            Atom::Mul(a, b) => {
-                if b.has_var() {
-                    Atom::Div(b.binvert(), a.binvert())
-                } else {
-                    Atom::Div(a.binvert(), b.binvert())
-                }
-            }
-            s => s,
+            Atom::Var(_) => return ops,
+            Atom::Num(n) => ops.push(Action::Ret(n)),
+            Atom::Add(a, b) => rev!(a, b, Sub, ops),
+            Atom::Sub(a, b) => rev!(a, b, Add, ops),
+            Atom::Div(a, b) => rev!(a, b, Mul, ops),
+            Atom::Mul(a, b) => rev!(a, b, Div, ops),
+        }
+        ops
+    }
+    fn to_f64(self) -> f64 {
+        match self {
+            Self::Num(n) => n,
+            _ => panic!("not a raw number"),
         }
     }
     fn has_var(&self) -> bool {
@@ -93,10 +110,10 @@ impl Atom {
     fn set_vars(self, vars: &HashMap<char, f64>) -> Self {
         match self {
             Atom::Var(c) => Atom::Num(*vars.get(&c).unwrap_or(&0.0)),
-            Atom::Sub(a, b) => Atom::Sub(Box::new(a.set_vars(vars)), Box::new(b.set_vars(vars))),
-            Atom::Add(a, b) => Atom::Add(Box::new(a.set_vars(vars)), Box::new(b.set_vars(vars))),
-            Atom::Mul(a, b) => Atom::Mul(Box::new(a.set_vars(vars)), Box::new(b.set_vars(vars))),
-            Atom::Div(a, b) => Atom::Div(Box::new(a.set_vars(vars)), Box::new(b.set_vars(vars))),
+            Atom::Sub(a, b) => set!(a, b, vars, Sub),
+            Atom::Add(a, b) => set!(a, b, vars, Add),
+            Atom::Mul(a, b) => set!(a, b, vars, Mul),
+            Atom::Div(a, b) => set!(a, b, vars, Div),
             s => s,
         }
     }
@@ -116,16 +133,6 @@ pub(crate) enum Tokens {
     Number(f64),
     Op(Ops),
     Var(char),
-}
-
-impl Tokens {
-    fn is_var(&self) -> bool {
-        if let Tokens::Var(_) = self {
-            true
-        } else {
-            false
-        }
-    }
 }
 
 fn tokenize(str: &str) -> Vec<Tokens> {
@@ -163,28 +170,6 @@ fn tokenize(str: &str) -> Vec<Tokens> {
 
 // if preceding token is operator, a minus is a negation of the next token (hopefully a number)
 // could set vars to store a negation flag, and nums can be negated right away
-fn shunting_yard(tokens: Vec<Tokens>) -> Vec<Tokens> {
-    let mut output = Vec::new();
-    let mut ops = Vec::new();
-    for token in tokens {
-        match token {
-            Tokens::Op(op) => {
-                while ops.last().is_some_and(|o| o >= &op) {
-                    output.push(Tokens::Op(ops.pop().unwrap()));
-                }
-                ops.push(op);
-            }
-            n => output.push(n),
-        }
-    }
-
-    while let Some(op) = ops.pop() {
-        output.push(Tokens::Op(op));
-    }
-
-    output
-}
-
 fn ast_shunting_yard(tokens: Vec<Tokens>) -> Atom {
     let mut output = Vec::new();
     let mut ops = Vec::new();
@@ -221,79 +206,41 @@ fn ast_shunting_yard(tokens: Vec<Tokens>) -> Atom {
     output.pop().unwrap()
 }
 
+#[derive(Debug, Clone, Copy)]
 enum Action {
     Add(f64),
     Sub(f64),
     Mul(f64),
     Div(f64),
+    Ret(f64),
 }
 
-fn rpn_rev(mut tokens: Vec<Tokens>) -> Vec<Action> {
-    let mut nums: Vec<Tokens> = Vec::new();
-
-    let mut actions: Vec<Action> = Vec::new();
-
-    for token in tokens {
-        match token {
-            Tokens::Op(op) => {
-                let b = nums.pop().unwrap();
-                let a = nums.pop().unwrap();
-
-                if a.is_var() {}
-
-                match op {
-                    Ops::Add => todo!(),
-                    Ops::Subtract => todo!(),
-                    Ops::Multiply => todo!(),
-                    Ops::Divide => todo!(),
-                }
-            }
-            t => nums.push(t),
+fn exec_actions(mut actions: Vec<Action>, mut num: f64) -> f64 {
+    actions.reverse();
+    for action in actions {
+        match action {
+            Action::Add(n) => num += n,
+            Action::Sub(n) => num -= n,
+            Action::Mul(n) => num *= n,
+            Action::Div(n) => num /= n,
+            Action::Ret(n) => return n,
         }
     }
 
-    actions
+    num
 }
 
-fn rpn(mut tokens: Vec<Tokens>, vars: HashMap<char, f64>) -> f64 {
-    for token in tokens.iter_mut() {
-        if let Tokens::Var(c) = token {
-            *token = Tokens::Number(*vars.get(c).unwrap());
-        }
-    }
-
-    let mut nums: Vec<f64> = Vec::new();
-
-    for token in tokens {
-        match token {
-            Tokens::Op(op) => {
-                let b = nums.pop().unwrap();
-                let a = nums.pop().unwrap();
-                nums.push(match op {
-                    Ops::Add => a + b,
-                    Ops::Subtract => a - b,
-                    Ops::Multiply => a * b,
-                    Ops::Divide => a / b,
-                });
-            }
-            Tokens::Number(n) => nums.push(n),
-            _ => panic!("too complicated for simple rpn"),
-        }
-    }
-    assert!(nums.len() == 1);
-
-    nums[0]
+pub fn eval_reverse(expr: &str, num: f64) -> f64 {
+    exec_actions(ast_shunting_yard(tokenize(expr)).eval().rev(), num)
 }
 
-pub fn eval(expr: &str, vars: HashMap<char, f64>) -> f64 {
+pub fn eval(expr: &str, var: u32) -> f64 {
+    let mut vars = HashMap::new();
+    vars.insert('X', var.into());
     let ast = ast_shunting_yard(tokenize(expr));
-    let x = if let Atom::Num(f) = ast.clone().set_vars(&vars).eval() {
+    if let Atom::Num(f) = ast.clone().set_vars(&vars).eval() {
         f
     } else {
         panic!("fail")
-    };
-    let mut h = HashMap::new();
-    h.insert('X', x);
-    dbg!(dbg!(ast.invert().set_vars(&h)).eval());
-    x
+    }
 }
