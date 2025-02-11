@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::os::unix::fs::FileExt;
 
-use xdftuneparser::data_types::{Math, XDFElement};
+use xdftuneparser::data_types::{EmbeddedData, Math, XDFElement};
 use xdftuneparser::parse_buffer;
 
 mod eval;
@@ -25,35 +25,31 @@ fn do_math(x: u64, math: &Math) -> f64 {
     eval::eval(math.expression.as_ref().unwrap(), vars)
 }
 
+fn print_value(name: &str, math: &Math, edata: &EmbeddedData, bin: &File) {
+    let addr = edata.mmedaddress.unwrap();
+    let mut buf = vec![0; edata.mmedelementsizebits.unwrap() as usize / 8];
+    bin.read_exact_at(&mut buf, addr as u64).unwrap();
+    let asint = bytes_to_u64(&buf);
+    let display = do_math(asint, &math);
+    println!("  {}: {} (raw: {})", name, display, asint);
+}
+
 fn main() {
     let file = File::open("8E0909518AK_368072_NEF_STG_1v7.xdf").unwrap();
 
     let result = parse_buffer(file).unwrap().unwrap();
 
     let stock_bin = File::open("8E0909518AK_368072_NEF_STG_1_Stock.bin").unwrap();
-    let tuned_bin = File::open("8E0909518AK_368072_NEF_STG_1_Tunedv7.bin").unwrap();
+    // let tuned_bin = File::open("8E0909518AK_368072_NEF_STG_1_Tunedv7.bin").unwrap();
 
     if let XDFElement::XDFFormat(xdf) = result {
         for constant in xdf.constants {
             let name = constant.title.unwrap();
             let edata = constant.embedded_data.unwrap();
             let math = constant.math.unwrap();
-            let addr = edata.mmedaddress.unwrap();
-            let mut buf = vec![0; edata.mmedelementsizebits.unwrap() as usize / 8];
             println!("{}:", name);
             println!("  expr: {}", math.expression.as_ref().unwrap());
-            stock_bin.read_exact_at(&mut buf, addr as u64).unwrap();
-            println!(
-                "  stock: {:x?} (raw: {:x})",
-                do_math(bytes_to_u64(&buf), &math),
-                bytes_to_u64(&buf)
-            );
-            tuned_bin.read_exact_at(&mut buf, addr as u64).unwrap();
-            println!(
-                "  tuned: {:x?} (raw: {:x})",
-                do_math(bytes_to_u64(&buf), &math),
-                bytes_to_u64(&buf)
-            );
+            print_value("stock", &math, &edata, &stock_bin);
         }
     } else {
         panic!("Expected full XDF file.");
