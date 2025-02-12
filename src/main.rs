@@ -7,17 +7,17 @@ pub mod definitions;
 mod eval;
 
 fn main() {
-    let file = File::open("8E0909518AK_368072_NEF_STG_1v7.xdf").unwrap();
+    let file = File::open("testfiles/8E0909518AK_368072_NEF_STG_1v7.xdf").unwrap();
 
     let result = parse_buffer(file).unwrap().unwrap();
 
-    let mut stock_bin = File::open("8E0909518AK_368072_NEF_STG_1_Stock.bin").unwrap();
-    // let tuned_bin = File::open("8E0909518AK_368072_NEF_STG_1_Tunedv7.bin").unwrap();
+    let mut stock_bin = File::open("testfiles/8E0909518AK_368072_NEF_STG_1_Stock.bin").unwrap();
+    // let tuned_bin = File::open("testfiles/8E0909518AK_368072_NEF_STG_1_Tunedv7.bin").unwrap();
 
     let mut new_file = File::options()
         .create(true)
         .write(true)
-        .open("testbin")
+        .open("testfiles/testbin")
         .unwrap();
 
     let definitions = if let XDFElement::XDFFormat(xdf) = result {
