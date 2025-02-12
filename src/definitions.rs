@@ -123,6 +123,12 @@ pub struct Axis {
 }
 
 impl Axis {
+    pub fn len(&self) -> usize {
+        match &self.data {
+            AxisData::User(v) => v.len(),
+            AxisData::Binary { count, .. } => *count,
+        }
+    }
     pub fn from_xdf(xdf: XDFAxis, linked: Option<&HashMap<u32, EmbeddedData>>) -> Self {
         // If there are no labels this must be an internally defined axis
         let data = if xdf.labels.is_empty() {
@@ -156,7 +162,7 @@ impl Axis {
             } as usize;
 
             // Element size must be defined or we might was well display random numbers.
-            let element_size = edata.mmedelementsizebits.unwrap() as usize;
+            let element_size = edata.mmedelementsizebits.unwrap() as usize / 8;
 
             let math = xdf.math.unwrap();
             assert_eq!(math.vars.len(), 1);

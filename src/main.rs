@@ -6,11 +6,11 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use definitions::BinaryDefinition;
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
-    style::Stylize,
+    layout::{Constraint, Layout, Rect},
+    style::{Style, Stylize},
     symbols::border,
     text::{Line, Text},
-    widgets::{Block, Paragraph, Widget},
+    widgets::{Block, Borders, Paragraph, Row, Table, Widget},
     DefaultTerminal, Frame,
 };
 
@@ -28,10 +28,49 @@ pub struct App {
     definition: BinaryDefinition,
     /// Binaries, mapped to their names and corresponding definition
     binary: File,
-    index: usize,
+    const_index: usize,
+    table_index: usize,
     current_const: (String, String),
+    current_table: (String, Vec<Vec<String>>, usize),
     /// If true exit on next event loop
     exit: bool,
+}
+
+fn build_table(bin: &mut File, def: &definitions::Table) -> io::Result<Vec<Vec<String>>> {
+    // add one to length for row/column headers
+    let xl = def.x.len();
+    let yl = def.y.len();
+
+    // read rows headers into buffer with one cell of padding for column headers
+    let mut buf = vec![0.0];
+    buf.append(&mut def.x.read(bin)?);
+
+    let mut buf: Vec<String> = buf.into_iter().map(|f| f.to_string()).collect();
+
+    let row_head = def.y.read(bin)?;
+
+    let mut data = def.z.read(bin)?;
+    // reverse data so we can use pop to put it in the table in order correctly
+    data.reverse();
+
+    let mut table = Vec::new();
+
+    for y in 0..yl {
+        // add the row "header"
+        buf.push(row_head[y].to_string());
+
+        for _ in 0..xl {
+            if let Some(d) = data.pop() {
+                buf.push(d.to_string());
+            } else {
+                break;
+            }
+        }
+
+        table.push(buf.split_off(0));
+    }
+
+    Ok(table)
 }
 
 impl App {
@@ -61,27 +100,51 @@ impl App {
         match event.code {
             KeyCode::Char('q' | 'Q') => self.exit = true,
             KeyCode::Left => {
-                if self.index >= self.definition.constants.len() - 1 {
-                    self.index = 0;
+                if self.const_index >= self.definition.constants.len() - 1 {
+                    self.const_index = 0;
                 } else {
-                    self.index += 1;
+                    self.const_index += 1;
                 }
             }
             KeyCode::Right => {
-                if self.index == 0 {
-                    self.index = self.definition.constants.len() - 1;
+                if self.const_index == 0 {
+                    self.const_index = self.definition.constants.len() - 1;
                 } else {
-                    self.index -= 1;
+                    self.const_index -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if self.table_index >= self.definition.tables.len() - 1 {
+                    self.table_index = 0;
+                } else {
+                    self.table_index += 1;
+                }
+            }
+
+            KeyCode::Up => {
+                if self.table_index == 0 {
+                    self.table_index = self.definition.tables.len() - 1;
+                } else {
+                    self.table_index -= 1;
                 }
             }
             _ => {}
         }
         if !self.definition.constants.is_empty() {
-            let constant = &self.definition.constants[self.index];
+            let constant = &self.definition.constants[self.const_index];
             self.current_const = (
                 constant.name.clone(),
                 constant.read(&mut self.binary)?.to_string(),
             );
+        }
+
+        if !self.definition.tables.is_empty() {
+            let table = &self.definition.tables[self.table_index];
+            self.current_table = (
+                table.name.clone(),
+                build_table(&mut self.binary, table)?,
+                table.x.len() + 1,
+            )
         }
         Ok(())
     }
@@ -89,31 +152,41 @@ impl App {
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = Line::from(" HEXTuner ".bold());
-        let instructions = Line::from(vec![
-            " Previous Constant ".into(),
-            "<Left>".blue().bold(),
-            " Next Constant ".into(),
-            "<Right>".blue().bold(),
-            " Quit ".into(),
-            "<Q>".blue().bold(),
-        ]);
+        let chunks = Layout::default()
+            .direction(ratatui::layout::Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Min(15),
+            ])
+            .split(area);
 
-        let block = Block::bordered()
-            .title(title.centered())
-            .title_bottom(instructions.centered())
-            .border_set(border::THICK);
+        let title_block = Block::default()
+            .borders(Borders::ALL)
+            .style(Style::default());
 
-        let value_text = Text::from(vec![Line::from(vec![
-            (&self.current_const.0).into(),
-            ": ".into(),
-            self.current_const.1.clone().yellow(),
-        ])]);
+        let title =
+            Paragraph::new(Text::styled(" HEXTuner ", Style::default().bold())).block(title_block);
 
-        Paragraph::new(value_text)
-            .centered()
-            .block(block)
-            .render(area, buf)
+        let constant_block = Block::default()
+            .title(self.current_const.0.clone())
+            .borders(Borders::ALL)
+            .style(Style::default());
+        let constant =
+            Paragraph::new(Text::from(self.current_const.1.clone().yellow())).block(constant_block);
+
+        let rows = self.current_table.1.iter().map(|r| Row::new(r.clone()));
+
+        let table_block = Block::default()
+            .title(self.current_table.0.clone())
+            .borders(Borders::ALL)
+            .style(Style::default());
+        let table =
+            Table::new(rows, vec![Constraint::Length(5); self.current_table.2]).block(table_block);
+
+        title.render(chunks[0], buf);
+        constant.render(chunks[1], buf);
+        table.render(chunks[2], buf);
     }
 }
 
@@ -122,7 +195,7 @@ fn main() -> std::io::Result<()> {
 
     let xdf_parsed = parse_buffer(xdf).unwrap().unwrap();
 
-    let bin = File::options()
+    let mut bin = File::options()
         .write(true)
         .read(true)
         .open("testfiles/test.bin")
@@ -134,6 +207,8 @@ fn main() -> std::io::Result<()> {
         panic!("Expected full XDF file.");
     };
 
+    dbg!(def.tables.last()).unwrap().z.read(&mut bin).unwrap();
+
     // let mut definitions = HashMap::new();
     // definitions.insert("def1".into(), def);
 
@@ -142,9 +217,11 @@ fn main() -> std::io::Result<()> {
 
     let mut app = App {
         definition: def,
-        index: 0,
+        const_index: 0,
+        table_index: 0,
         binary: bin,
         current_const: ("None".into(), "N/A".into()),
+        current_table: ("None".into(), Vec::new(), 0),
         exit: false,
     };
 
