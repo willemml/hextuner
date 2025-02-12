@@ -9,7 +9,6 @@ pub(crate) enum Ops {
     Multiply,
     Divide,
     OpenBracket,
-    CloseBracket,
 }
 
 impl Ord for Ops {

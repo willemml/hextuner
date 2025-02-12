@@ -7,6 +7,10 @@
 //! software.
 //! Also seems to work with the 2.7t community file.
 
+// TODO: Still need to implement min/max values, will probably do
+// this based on stored value bit precision.
+// (eval raw::MAX and raw ::MIN)
+
 use std::{
     collections::HashMap,
     io::{Read, Seek, Write},
