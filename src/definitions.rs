@@ -6,9 +6,26 @@
 //! for 1.8T AMB engines, specifically the 8E0909518AK-0003 ECU
 //! software.
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    io::{Read, Seek, Write},
+};
 
 use xdftuneparser::data_types::*;
+
+use crate::eval::{eval, eval_reverse};
+
+fn bytes_to_u32(bytes: &[u8]) -> u32 {
+    let mut final_bytes = [0; 4];
+    if bytes.len() > 4 {
+        panic!("too big");
+    } else {
+        for i in 0..bytes.len() {
+            final_bytes[4 - bytes.len() + i] = bytes[bytes.len() - i - 1];
+        }
+    }
+    u32::from_be_bytes(final_bytes)
+}
 
 /// Binary definition metadata
 #[derive(Debug, Clone)]
@@ -32,8 +49,8 @@ pub struct Constant {
     pub name: String,
     pub description: String,
     /// Binary offset from beginning of file
-    pub address: u32,
-    /// Size of stored value in bytes (max 8 with current implementation)
+    pub address: u64,
+    /// Size of stored value in bytes (max 4 with current implementation)
     pub size: usize,
     /// Equation to convert between integer representation and human readable value
     pub expression: String,
@@ -43,7 +60,7 @@ impl Constant {
     pub fn from_xdf(xdf: XDFConstant) -> Self {
         let edata = xdf.embedded_data.unwrap();
         let math = xdf.math.unwrap();
-        let address = edata.mmedaddress.unwrap();
+        let address = edata.mmedaddress.unwrap() as u64;
         let size = (edata.mmedelementsizebits.unwrap() / 8) as usize;
         let name = xdf.title.unwrap_or_default();
         let description = xdf.description.unwrap_or_default();
@@ -57,6 +74,23 @@ impl Constant {
             expression,
         }
     }
+
+    pub fn read<R: Read + Seek>(&self, bin: &mut R) -> Result<f64, std::io::Error> {
+        bin.seek(std::io::SeekFrom::Start(self.address))?;
+        let mut buf = vec![0u8; self.size];
+        bin.read_exact(&mut buf)?;
+        Ok(eval(&self.expression, bytes_to_u32(&buf)))
+    }
+
+    pub fn write<W: Write + Seek>(&self, bin: &mut W, val: f64) -> Result<(), std::io::Error> {
+        bin.seek(std::io::SeekFrom::Start(self.address))?;
+        let bytes = (eval_reverse(&self.expression, val).round() as u32).to_be_bytes();
+        let mut buf = vec![];
+        for i in 0..self.size {
+            buf.push(bytes[bytes.len() - i - 1]);
+        }
+        bin.write_all(&mut buf)
+    }
 }
 
 /// Axis data, can be stored values or user defined constants
@@ -66,7 +100,7 @@ pub enum AxisData {
     User(Vec<f64>),
     /// Axis data defined in binary
     Binary {
-        address: u32,
+        address: u64,
         /// Size in bytes of one element (max 8 with current implementation)
         element_size: usize,
         /// Total number of elements, should equal product of rows and columns
@@ -106,7 +140,7 @@ impl Axis {
                     .unwrap();
                 linked.unwrap().get(&link_id).cloned().unwrap()
             };
-            let address = edata.mmedaddress.unwrap();
+            let address = edata.mmedaddress.unwrap() as u64;
 
             // There must be at least one of row or column count defined,
             // otherwise there is no way of knowing how to organize the data.
@@ -154,6 +188,57 @@ impl Axis {
         Self {
             units: xdf.unit.unwrap_or_default(),
             data,
+        }
+    }
+    pub fn read<R: Read + Seek>(&self, bin: &mut R) -> Result<Vec<f64>, std::io::Error> {
+        match &self.data {
+            AxisData::User(items) => Ok(items.clone()),
+            AxisData::Binary {
+                address,
+                element_size,
+                count,
+                expression,
+                ..
+            } => {
+                bin.seek(std::io::SeekFrom::Start(*address))?;
+                let mut buf = vec![0u8; *element_size];
+
+                let mut result = Vec::with_capacity(*count);
+
+                for _ in 0..*count {
+                    bin.read_exact(&mut buf)?;
+                    result.push(eval(&expression, bytes_to_u32(&buf)));
+                }
+
+                Ok(result)
+            }
+        }
+    }
+    pub fn write<W: Write + Seek>(
+        &self,
+        bin: &mut W,
+        vals: Vec<f64>,
+    ) -> Result<(), std::io::Error> {
+        match &self.data {
+            AxisData::User(_) => panic!("Cannot write user defined constant values to binary"),
+            AxisData::Binary {
+                address,
+                element_size,
+                count,
+                expression,
+                ..
+            } => {
+                assert_eq!(count, &vals.len());
+                bin.seek(std::io::SeekFrom::Start(*address))?;
+                let mut buf = vec![];
+                for val in vals {
+                    let bytes = (eval_reverse(&expression, val).round() as u32).to_be_bytes();
+                    for i in 0..*element_size {
+                        buf.push(bytes[bytes.len() - i]);
+                    }
+                }
+                bin.write_all(&mut buf)
+            }
         }
     }
 }
