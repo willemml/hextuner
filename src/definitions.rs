@@ -136,21 +136,18 @@ impl Axis {
             let math;
 
             // Logic to get data storage information from linked object if it is missing
-            if edata.mmedaddress.is_some()
+            if let Some(Some(link_id)) = xdf.embedinfo.map(|e| e.linkobjid) {
+                let linked = linked.unwrap().get(&link_id).cloned().unwrap();
+                edata = linked.0;
+                math = linked.1;
+            } else if edata.mmedaddress.is_some()
                 && (edata.mmedcolcount.is_some()
                     || edata.mmedrowcount.is_some()
                     || xdf.count.is_some())
             {
                 math = xdf.math.unwrap();
             } else {
-                let link_id = xdf
-                    .embedinfo
-                    .as_ref()
-                    .map(|ei| ei.linkobjid.unwrap())
-                    .unwrap();
-                let linked = linked.unwrap().get(&link_id).cloned().unwrap();
-                edata = linked.0;
-                math = linked.1;
+                panic!("Found no valid embed data for data axis.");
             };
 
             assert_eq!(math.vars.len(), 1);

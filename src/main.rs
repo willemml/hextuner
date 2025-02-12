@@ -35,6 +35,22 @@ pub struct App {
     exit: bool,
 }
 
+fn incr(var: &mut usize, max: usize) {
+    if *var >= max {
+        *var = 0;
+    } else {
+        *var += 1;
+    }
+}
+
+fn decr(var: &mut usize, max: usize) {
+    if *var == 0 {
+        *var = max;
+    } else {
+        *var -= 1;
+    }
+}
+
 fn build_table(bin: &mut File, def: &definitions::Table) -> io::Result<Vec<Vec<String>>> {
     // add one to length for row/column headers
     let xl = def.x.len();
@@ -102,39 +118,15 @@ impl App {
     fn handle_key_event(&mut self, event: KeyEvent) -> io::Result<()> {
         match event.code {
             KeyCode::Char('q' | 'Q') => self.exit = true,
-            KeyCode::Left => {
-                if self.const_index >= self.definition.constants.len() - 1 {
-                    self.const_index = 0;
-                } else {
-                    self.const_index += 1;
-                }
-            }
-            KeyCode::Right => {
-                if self.const_index == 0 {
-                    self.const_index = self.definition.constants.len() - 1;
-                } else {
-                    self.const_index -= 1;
-                }
-            }
-            KeyCode::Down => {
-                if self.table_index >= self.definition.tables.len() - 1 {
-                    self.table_index = 0;
-                } else {
-                    self.table_index += 1;
-                }
-            }
-
-            KeyCode::Up => {
-                if self.table_index == 0 {
-                    self.table_index = self.definition.tables.len() - 1;
-                } else {
-                    self.table_index -= 1;
-                }
-            }
+            KeyCode::Left => incr(&mut self.const_index, self.definition.constants.len() - 1),
+            KeyCode::Right => decr(&mut self.const_index, self.definition.constants.len() - 1),
+            KeyCode::Down => decr(&mut self.table_index, self.definition.tables.len() - 1),
+            KeyCode::Up => incr(&mut self.table_index, self.definition.tables.len() - 1),
             _ => {}
         }
         self.update()
     }
+
     fn update(&mut self) -> io::Result<()> {
         if !self.definition.constants.is_empty() {
             let constant = &self.definition.constants[self.const_index];
