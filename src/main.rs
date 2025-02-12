@@ -8,8 +8,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     style::{Style, Stylize},
-    symbols::border,
-    text::{Line, Text},
+    text::Text,
     widgets::{Block, Borders, Paragraph, Row, Table, Widget},
     DefaultTerminal, Frame,
 };
@@ -47,6 +46,8 @@ fn build_table(bin: &mut File, def: &definitions::Table) -> io::Result<Vec<Vec<S
 
     let mut buf: Vec<String> = buf.into_iter().map(|f| f.to_string()).collect();
 
+    buf[0] = "".into();
+
     let row_head = def.y.read(bin)?;
 
     let mut data = def.z.read(bin)?;
@@ -54,6 +55,7 @@ fn build_table(bin: &mut File, def: &definitions::Table) -> io::Result<Vec<Vec<S
     data.reverse();
 
     let mut table = Vec::new();
+    table.push(buf.split_off(0));
 
     for y in 0..yl {
         // add the row "header"
@@ -75,6 +77,7 @@ fn build_table(bin: &mut File, def: &definitions::Table) -> io::Result<Vec<Vec<S
 
 impl App {
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+        self.update()?;
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
@@ -130,6 +133,9 @@ impl App {
             }
             _ => {}
         }
+        self.update()
+    }
+    fn update(&mut self) -> io::Result<()> {
         if !self.definition.constants.is_empty() {
             let constant = &self.definition.constants[self.const_index];
             self.current_const = (
@@ -146,6 +152,7 @@ impl App {
                 table.x.len() + 1,
             )
         }
+
         Ok(())
     }
 }
@@ -195,7 +202,7 @@ fn main() -> std::io::Result<()> {
 
     let xdf_parsed = parse_buffer(xdf).unwrap().unwrap();
 
-    let mut bin = File::options()
+    let bin = File::options()
         .write(true)
         .read(true)
         .open("testfiles/test.bin")
@@ -207,7 +214,15 @@ fn main() -> std::io::Result<()> {
         panic!("Expected full XDF file.");
     };
 
-    dbg!(def.tables.last()).unwrap().z.read(&mut bin).unwrap();
+    // let krkte_t = def
+    //     .tables
+    //     .iter()
+    //     .find(|t| t.name == "KRKTE")
+    //     .unwrap()
+    //     .clone();
+    // let krkte = krkte_t.z.read(&mut bin).unwrap();
+
+    // dbg!(&krkte_t, krkte);
 
     // let mut definitions = HashMap::new();
     // definitions.insert("def1".into(), def);
@@ -232,6 +247,7 @@ fn main() -> std::io::Result<()> {
     ratatui::restore();
 
     result
+    // Ok(())
 
     // for constant in definitions.constants {
     //     constant

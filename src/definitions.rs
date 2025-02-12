@@ -129,26 +129,32 @@ impl Axis {
             AxisData::Binary { count, .. } => *count,
         }
     }
-    pub fn from_xdf(xdf: XDFAxis, linked: Option<&HashMap<u32, EmbeddedData>>) -> Self {
+    pub fn from_xdf(xdf: XDFAxis, linked: Option<&HashMap<u32, (EmbeddedData, Math)>>) -> Self {
         // If there are no labels this must be an internally defined axis
         let data = if xdf.labels.is_empty() {
-            let edata = xdf.embeddeddata.unwrap();
+            let mut edata = xdf.embeddeddata.unwrap();
+            let math;
 
             // Logic to get data storage information from linked object if it is missing
-            let edata = if edata.mmedaddress.is_some()
+            if edata.mmedaddress.is_some()
                 && (edata.mmedcolcount.is_some()
                     || edata.mmedrowcount.is_some()
                     || xdf.count.is_some())
             {
-                edata
+                math = xdf.math.unwrap();
             } else {
                 let link_id = xdf
                     .embedinfo
                     .as_ref()
                     .map(|ei| ei.linkobjid.unwrap())
                     .unwrap();
-                linked.unwrap().get(&link_id).cloned().unwrap()
+                let linked = linked.unwrap().get(&link_id).cloned().unwrap();
+                edata = linked.0;
+                math = linked.1;
             };
+
+            assert_eq!(math.vars.len(), 1);
+
             let address = edata.mmedaddress.unwrap() as u64;
 
             let count = if let Some(c) = xdf.count {
@@ -163,9 +169,6 @@ impl Axis {
 
             // Element size must be defined or we might was well display random numbers.
             let element_size = edata.mmedelementsizebits.unwrap() as usize / 8;
-
-            let math = xdf.math.unwrap();
-            assert_eq!(math.vars.len(), 1);
 
             // Because we only allow one variable normalize it to 'X'
             let expression = math.expression.unwrap().replace(math.vars[0].as_str(), "X");
@@ -259,7 +262,10 @@ pub struct Table {
 }
 
 impl Table {
-    pub fn from_xdf(mut xdf: XDFTable, linked: Option<&HashMap<u32, EmbeddedData>>) -> Self {
+    pub fn from_xdf(
+        mut xdf: XDFTable,
+        linked: Option<&HashMap<u32, (EmbeddedData, Math)>>,
+    ) -> Self {
         let name = xdf.title.unwrap_or_default();
         let description = xdf.description.unwrap_or_default();
 
@@ -300,9 +306,10 @@ impl BinaryDefinition {
             if let Some(uid) = table.uid.clone() {
                 for axis in table.axis.iter() {
                     if axis.id.as_ref().unwrap().to_lowercase() == "z" {
-                        if let Some(edata) = axis.embeddeddata.clone() {
-                            table_zs.insert(uid, edata);
-                        }
+                        table_zs.insert(
+                            uid,
+                            (axis.embeddeddata.unwrap(), axis.math.clone().unwrap()),
+                        );
                     }
                 }
             }
