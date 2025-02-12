@@ -8,6 +8,8 @@ pub(crate) enum Ops {
     Subtract,
     Multiply,
     Divide,
+    OpenBracket,
+    CloseBracket,
 }
 
 impl Ord for Ops {
@@ -29,6 +31,7 @@ impl Ops {
             Ops::Subtract => 2,
             Ops::Multiply => 3,
             Ops::Divide => 3,
+            _ => 0,
         }
     }
 }
@@ -132,12 +135,15 @@ impl Atom {
 pub(crate) enum Tokens {
     Number(f64),
     Op(Ops),
-    Var(char),
+    Var(char, bool),
+    OpenBracket,
+    CloseBracket,
 }
 
 fn tokenize(str: &str) -> Vec<Tokens> {
     let mut tokens: Vec<Tokens> = Vec::new();
     let mut buf = String::new();
+    let mut neg = false;
     for c in str.chars() {
         match c {
             '0'..='9' | '.' => {
@@ -147,15 +153,32 @@ fn tokenize(str: &str) -> Vec<Tokens> {
             '/' => tokens.push(Tokens::Op(Ops::Divide)),
             '*' => tokens.push(Tokens::Op(Ops::Multiply)),
             '+' => tokens.push(Tokens::Op(Ops::Add)),
-            '-' => tokens.push(Tokens::Op(Ops::Subtract)),
-            'a'..='z' | 'A'..='Z' => {
-                tokens.push(Tokens::Var(c));
+            '-' => {
+                if let Some(last) = tokens.last() {
+                    match last {
+                        Tokens::OpenBracket | Tokens::Op(_) if buf.is_empty() => neg = !neg,
+                        _ => tokens.push(Tokens::Op(Ops::Subtract)),
+                    }
+                } else {
+                    neg = !neg;
+                }
             }
+            'a'..='z' | 'A'..='Z' => {
+                tokens.push(Tokens::Var(c, neg));
+                neg = false;
+            }
+            '(' | '[' => tokens.push(Tokens::OpenBracket),
+            ')' | ']' => tokens.push(Tokens::CloseBracket),
             _ => continue,
         }
         if !buf.is_empty() {
             let prev = tokens.pop().unwrap();
-            tokens.push(Tokens::Number(buf.parse().unwrap()));
+            let mut num = buf.parse().unwrap();
+            if neg {
+                num *= -1.0;
+                neg = false;
+            }
+            tokens.push(Tokens::Number(num));
             tokens.push(prev);
             buf.clear();
         }
@@ -182,6 +205,7 @@ fn ast_shunting_yard(tokens: Vec<Tokens>) -> Atom {
             Ops::Subtract => Atom::Sub(a, b),
             Ops::Multiply => Atom::Mul(a, b),
             Ops::Divide => Atom::Div(a, b),
+            _ => panic!("Unexpected parentheses."),
         });
     }
 
@@ -194,7 +218,20 @@ fn ast_shunting_yard(tokens: Vec<Tokens>) -> Atom {
                 }
                 ops.push(op)
             }
-            Tokens::Var(c) => output.push(Atom::Var(c)),
+            Tokens::Var(c, n) => output.push(if n {
+                Atom::Mul(Box::new(Atom::Var(c)), Box::new(Atom::Num(-1.0)))
+            } else {
+                Atom::Var(c)
+            }),
+            Tokens::OpenBracket => ops.push(Ops::OpenBracket),
+            Tokens::CloseBracket => {
+                while let Some(op) = ops.pop() {
+                    match op {
+                        Ops::OpenBracket => break,
+                        o => do_op(&mut output, o),
+                    }
+                }
+            }
         }
     }
 
@@ -237,6 +274,7 @@ pub fn eval_reverse(expr: &str, num: f64) -> f64 {
 pub fn eval(expr: &str, var: u32) -> f64 {
     let mut vars = HashMap::new();
     vars.insert('X', var.into());
+    vars.insert('x', var.into());
     let ast = ast_shunting_yard(tokenize(expr));
     if let Atom::Num(f) = ast.clone().set_vars(&vars).eval() {
         f

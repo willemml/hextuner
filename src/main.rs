@@ -38,6 +38,8 @@ fn main() {
 
     let result = parse_buffer(file).unwrap().unwrap();
 
+    dbg!(eval::eval("10*-2--X", 0));
+
     let stock_bin = File::open("8E0909518AK_368072_NEF_STG_1_Stock.bin").unwrap();
     // let tuned_bin = File::open("8E0909518AK_368072_NEF_STG_1_Tunedv7.bin").unwrap();
 
@@ -46,9 +48,25 @@ fn main() {
             let name = constant.title.unwrap();
             let edata = constant.embedded_data.unwrap();
             let math = constant.math.unwrap();
-            println!("{}:", name);
-            println!("  expr: {}", math.expression.as_ref().unwrap());
-            print_value("stock", &math, &edata, &stock_bin);
+            println!("\"{}\",", math.expression.as_ref().unwrap());
+            // println!("{}:", name);
+            // println!("  expr: {}", math.expression.as_ref().unwrap());
+            // print_value("stock", &math, &edata, &stock_bin);
+        }
+        for table in xdf.tables {
+            for axis in table.axis {
+                if let Some(Math {
+                    vars: _,
+                    expression: Some(expr),
+                }) = axis.math
+                {
+                    println!("\"{}\",", expr);
+                    assert_eq!(
+                        eval::eval_reverse(&expr, eval::eval(&expr, 8192)).round() as u32,
+                        8192
+                    );
+                }
+            }
         }
     } else {
         panic!("Expected full XDF file.");
