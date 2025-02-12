@@ -5,6 +5,7 @@
 //! with the existing XDF for the Nefmoto Stage 1 community project
 //! for 1.8T AMB engines, specifically the 8E0909518AK-0003 ECU
 //! software.
+//! Also seems to work with the 2.7t community file.
 
 use std::{
     collections::HashMap,
@@ -105,10 +106,6 @@ pub enum AxisData {
         element_size: usize,
         /// Total number of elements, should equal product of rows and columns
         count: usize,
-        /// Number of rows, should be 1 for X axis
-        rows: usize,
-        /// Number of columns, should be 1 for Y axis
-        columns: usize,
         /// Equation to convert betwen integer representation and human readable value
         expression: String,
     },
@@ -129,7 +126,9 @@ impl Axis {
 
             // Logic to get data storage information from linked object if it is missing
             let edata = if edata.mmedaddress.is_some()
-                && (edata.mmedcolcount.is_some() || edata.mmedrowcount.is_some())
+                && (edata.mmedcolcount.is_some()
+                    || edata.mmedrowcount.is_some()
+                    || xdf.count.is_some())
             {
                 edata
             } else {
@@ -142,18 +141,15 @@ impl Axis {
             };
             let address = edata.mmedaddress.unwrap() as u64;
 
-            // There must be at least one of row or column count defined,
-            // otherwise there is no way of knowing how to organize the data.
-            assert!(edata.mmedrowcount.is_some() || edata.mmedcolcount.is_some());
-            let rows = edata.mmedrowcount.unwrap_or(1) as usize;
-            let columns = edata.mmedcolcount.unwrap_or(1) as usize;
-
-            let count = rows * columns;
-
-            // Make sure count is as expected, otherwise row or column counts are wrong.
-            if let Some(icount) = xdf.count {
-                assert_eq!(icount as usize, count);
-            }
+            let count = if let Some(c) = xdf.count {
+                c
+            } else if let (Some(c), Some(r)) = (edata.mmedcolcount, edata.mmedrowcount) {
+                r * c
+            } else if let Some(c) = edata.mmedcolcount {
+                c
+            } else {
+                edata.mmedrowcount.unwrap()
+            } as usize;
 
             // Element size must be defined or we might was well display random numbers.
             let element_size = edata.mmedelementsizebits.unwrap() as usize;
@@ -168,8 +164,6 @@ impl Axis {
                 address,
                 element_size,
                 count,
-                rows,
-                columns,
                 expression,
             }
         } else {
@@ -198,7 +192,6 @@ impl Axis {
                 element_size,
                 count,
                 expression,
-                ..
             } => {
                 bin.seek(std::io::SeekFrom::Start(*address))?;
                 let mut buf = vec![0u8; *element_size];
@@ -226,7 +219,6 @@ impl Axis {
                 element_size,
                 count,
                 expression,
-                ..
             } => {
                 assert_eq!(count, &vals.len());
                 bin.seek(std::io::SeekFrom::Start(*address))?;

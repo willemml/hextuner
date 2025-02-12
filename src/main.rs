@@ -7,7 +7,8 @@ pub mod definitions;
 mod eval;
 
 fn main() {
-    let file = File::open("testfiles/8E0909518AK_368072_NEF_STG_1v7.xdf").unwrap();
+    // let file = File::open("testfiles/8E0909518AK_368072_NEF_STG_1v7.xdf").unwrap();
+    let file = File::open("testfiles/8D0907551M-20190711.xdf").unwrap();
 
     let result = parse_buffer(file).unwrap().unwrap();
 
@@ -26,9 +27,9 @@ fn main() {
         panic!("Expected full XDF file.");
     };
 
-    for constant in definitions.constants {
-        constant
-            .write(&mut new_file, constant.read(&mut stock_bin).unwrap())
-            .unwrap();
-    }
+    // for constant in definitions.constants {
+    //     constant
+    //         .write(&mut new_file, constant.read(&mut stock_bin).unwrap())
+    //         .unwrap();
+    // }
 }
