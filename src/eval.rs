@@ -191,8 +191,6 @@ fn tokenize(str: &str) -> Vec<Tokens> {
     tokens
 }
 
-// if preceding token is operator, a minus is a negation of the next token (hopefully a number)
-// could set vars to store a negation flag, and nums can be negated right away
 fn ast_shunting_yard(tokens: Vec<Tokens>) -> Atom {
     let mut output = Vec::new();
     let mut ops = Vec::new();
