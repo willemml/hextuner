@@ -1,23 +1,68 @@
 use std::fs::File;
+use std::sync::{Arc, Mutex};
 
-use std::io;
+use definitions::{BinaryDefinition, Scalar, Table};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-use definitions::BinaryDefinition;
-use ratatui::{
-    buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
-    style::{Style, Stylize},
-    text::Text,
-    widgets::{Block, Borders, Paragraph, Row, Table, Widget},
-    DefaultTerminal, Frame,
-};
-
+use iced::widget::{pane_grid, PaneGrid};
+use iced::Task;
+use views::map_nav::MapNav;
+use views::table::TableView;
 use xdftuneparser::data_types::XDFElement;
 use xdftuneparser::parse_buffer;
 
 pub mod definitions;
 pub mod eval;
+mod views;
+
+#[derive(Debug)]
+pub struct RWGuarded<RW> {
+    inner: Arc<Mutex<RW>>,
+}
+
+impl<RW> Clone for RWGuarded<RW> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+pub type FileGuard = RWGuarded<File>;
+
+impl From<File> for RWGuarded<File> {
+    fn from(value: File) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(value)),
+        }
+    }
+}
+
+impl<RW: std::io::Read> std::io::Read for RWGuarded<RW> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // TODO: handle unwrap?
+        self.inner.lock().unwrap().read(buf)
+    }
+}
+
+impl<RW: std::io::Seek> std::io::Seek for RWGuarded<RW> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.inner.lock().unwrap().seek(pos)
+    }
+}
+
+impl<RW: std::io::Write> std::io::Write for RWGuarded<RW> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.inner.lock().unwrap().write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.lock().unwrap().flush()
+    }
+}
+pub enum Pane {
+    Table(TableView),
+    Nav(MapNav),
+}
 
 // TODO: use internal IDs instead of filenames
 // TODO: move binary to ram for editing, write to different filename
@@ -26,170 +71,52 @@ pub struct App {
     /// Definitions, mapped to their names
     definition: BinaryDefinition,
     /// Binaries, mapped to their names and corresponding definition
-    binary: File,
-    const_index: usize,
-    table_index: usize,
-    current_const: (String, String),
-    current_table: (String, Vec<Vec<String>>, usize),
-    /// If true exit on next event loop
-    exit: bool,
-}
-
-fn incr(var: &mut usize, max: usize) {
-    if *var >= max {
-        *var = 0;
-    } else {
-        *var += 1;
-    }
-}
-
-fn decr(var: &mut usize, max: usize) {
-    if *var == 0 {
-        *var = max;
-    } else {
-        *var -= 1;
-    }
-}
-
-fn build_table(bin: &mut File, def: &definitions::Table) -> io::Result<Vec<Vec<String>>> {
-    // add one to length for row/column headers
-    let xl = def.x.len();
-    let yl = def.y.len();
-
-    // read rows headers into buffer with one cell of padding for column headers
-    let mut buf = vec![0.0];
-    buf.append(&mut def.x.read(bin)?);
-
-    let mut buf: Vec<String> = buf.into_iter().map(|f| f.to_string()).collect();
-
-    buf[0] = "".into();
-
-    let row_head = def.y.read(bin)?;
-
-    let mut data = def.z.read(bin)?;
-    // reverse data so we can use pop to put it in the table in order correctly
-    data.reverse();
-
-    let mut table = Vec::new();
-    table.push(buf.split_off(0));
-
-    for y in 0..yl {
-        // add the row "header"
-        buf.push(row_head[y].to_string());
-
-        for _ in 0..xl {
-            if let Some(d) = data.pop() {
-                buf.push(d.to_string());
-            } else {
-                break;
-            }
-        }
-
-        table.push(buf.split_off(0));
-    }
-
-    Ok(table)
+    binary: FileGuard,
+    panes: pane_grid::State<Pane>,
 }
 
 impl App {
-    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        self.update()?;
-        while !self.exit {
-            terminal.draw(|frame| self.draw(frame))?;
-            self.handle_events()?;
+    fn new(bin: File, def: definitions::BinaryDefinition) -> Self {
+        let mut nav = MapNav::default();
+        nav.tables = def.tables.clone();
+        nav.scalars = def.scalars.clone();
+        let (panes, _) = pane_grid::State::new(Pane::Nav(nav));
+        Self {
+            definition: def,
+            binary: FileGuard::from(bin),
+            panes,
         }
-        Ok(())
     }
-
-    fn draw(&self, frame: &mut Frame) {
-        frame.render_widget(self, frame.area());
+    fn view(&self) -> PaneGrid<Message> {
+        pane_grid(&self.panes, |_state, pane, _| {
+            pane_grid::Content::new(match pane {
+                Pane::Table(v) => iced::Element::from(v.view()),
+                Pane::Nav(m) => m.view().into(),
+            })
+        })
     }
-
-    fn handle_events(&mut self) -> io::Result<()> {
-        match event::read()? {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)?
+    fn update(&mut self, message: Message) {
+        match message {
+            Message::OpenTable(t) => {
+                self.panes.split(
+                    pane_grid::Axis::Vertical,
+                    self.panes.iter().last().unwrap().0.clone(),
+                    Pane::Table(TableView::new(t, self.binary.clone())),
+                );
             }
             _ => {}
         }
-        Ok(())
-    }
-
-    fn handle_key_event(&mut self, event: KeyEvent) -> io::Result<()> {
-        match event.code {
-            KeyCode::Char('q' | 'Q') => self.exit = true,
-            KeyCode::Left => incr(&mut self.const_index, self.definition.constants.len() - 1),
-            KeyCode::Right => decr(&mut self.const_index, self.definition.constants.len() - 1),
-            KeyCode::Down => decr(&mut self.table_index, self.definition.tables.len() - 1),
-            KeyCode::Up => incr(&mut self.table_index, self.definition.tables.len() - 1),
-            _ => {}
-        }
-        self.update()
-    }
-
-    fn update(&mut self) -> io::Result<()> {
-        if !self.definition.constants.is_empty() {
-            let constant = &self.definition.constants[self.const_index];
-            self.current_const = (
-                constant.name.clone(),
-                constant.read(&mut self.binary)?.to_string(),
-            );
-        }
-
-        if !self.definition.tables.is_empty() {
-            let table = &self.definition.tables[self.table_index];
-            self.current_table = (
-                table.name.clone(),
-                build_table(&mut self.binary, table)?,
-                table.x.len() + 1,
-            )
-        }
-
-        Ok(())
     }
 }
 
-impl Widget for &App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let chunks = Layout::default()
-            .direction(ratatui::layout::Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),
-                Constraint::Length(3),
-                Constraint::Min(15),
-            ])
-            .split(area);
-
-        let title_block = Block::default()
-            .borders(Borders::ALL)
-            .style(Style::default());
-
-        let title =
-            Paragraph::new(Text::styled(" HEXTuner ", Style::default().bold())).block(title_block);
-
-        let constant_block = Block::default()
-            .title(self.current_const.0.clone())
-            .borders(Borders::ALL)
-            .style(Style::default());
-        let constant =
-            Paragraph::new(Text::from(self.current_const.1.clone().yellow())).block(constant_block);
-
-        let rows = self.current_table.1.iter().map(|r| Row::new(r.clone()));
-
-        let table_block = Block::default()
-            .title(self.current_table.0.clone())
-            .borders(Borders::ALL)
-            .style(Style::default());
-        let table =
-            Table::new(rows, vec![Constraint::Length(5); self.current_table.2]).block(table_block);
-
-        title.render(chunks[0], buf);
-        constant.render(chunks[1], buf);
-        table.render(chunks[2], buf);
-    }
+#[derive(Debug, Clone)]
+enum Message {
+    OpenTable(Table),
+    OpenScalar(Scalar),
+    EditCell(Table, FileGuard),
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> iced::Result {
     let xdf = File::open("testfiles/8E0909518AK_368072_NEF_STG_1v7.xdf").unwrap();
 
     let xdf_parsed = parse_buffer(xdf).unwrap().unwrap();
@@ -206,44 +133,6 @@ fn main() -> std::io::Result<()> {
         panic!("Expected full XDF file.");
     };
 
-    // let krkte_t = def
-    //     .tables
-    //     .iter()
-    //     .find(|t| t.name == "KRKTE")
-    //     .unwrap()
-    //     .clone();
-    // let krkte = krkte_t.z.read(&mut bin).unwrap();
-
-    // dbg!(&krkte_t, krkte);
-
-    // let mut definitions = HashMap::new();
-    // definitions.insert("def1".into(), def);
-
-    // let mut binaries = HashMap::new();
-    // binaries.insert("bin1".into(), ("def1".into(), bin));
-
-    let mut app = App {
-        definition: def,
-        const_index: 0,
-        table_index: 0,
-        binary: bin,
-        current_const: ("None".into(), "N/A".into()),
-        current_table: ("None".into(), Vec::new(), 0),
-        exit: false,
-    };
-
-    let mut terminal = ratatui::init();
-
-    let result = app.run(&mut terminal);
-
-    ratatui::restore();
-
-    result
-    // Ok(())
-
-    // for constant in definitions.constants {
-    //     constant
-    //         .write(&mut new_file, constant.read(&mut stock_bin).unwrap())
-    //         .unwrap();
-    // }
+    iced::application("HEXTuner", App::update, App::view)
+        .run_with(|| (App::new(bin, def), Task::none()))
 }

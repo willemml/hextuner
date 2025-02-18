@@ -50,7 +50,7 @@ impl DefinitionInfo {
 
 /// Single editable value
 #[derive(Debug, Clone)]
-pub struct Constant {
+pub struct Scalar {
     pub name: String,
     pub description: String,
     /// Binary offset from beginning of file
@@ -61,7 +61,7 @@ pub struct Constant {
     pub expression: String,
 }
 
-impl Constant {
+impl Scalar {
     pub fn from_xdf(xdf: XDFConstant) -> Self {
         let edata = xdf.embedded_data.unwrap();
         let math = xdf.math.unwrap();
@@ -127,6 +127,12 @@ impl Axis {
         match &self.data {
             AxisData::User(v) => v.len(),
             AxisData::Binary { count, .. } => *count,
+        }
+    }
+    pub fn writeable(&self) -> bool {
+        match self.data {
+            AxisData::User(_) => false,
+            AxisData::Binary { .. } => true,
         }
     }
     pub fn from_xdf(xdf: XDFAxis, linked: Option<&HashMap<u32, (EmbeddedData, Math)>>) -> Self {
@@ -285,13 +291,52 @@ impl Table {
             z,
         }
     }
+    pub fn build_array(&self, bin: &mut std::fs::File) -> std::io::Result<Vec<Vec<String>>> {
+        // add one to length for row/column headers
+        let xl = self.x.len();
+        let yl = self.y.len();
+
+        // read rows headers into buffer with one cell of padding for column headers
+        let mut buf = vec![0.0];
+        buf.append(&mut self.x.read(bin)?);
+
+        let mut buf: Vec<String> = buf.into_iter().map(|f| f.to_string()).collect();
+
+        buf[0] = "".into();
+
+        let row_head = self.y.read(bin)?;
+
+        let mut data = self.z.read(bin)?;
+        // reverse data so we can use pop to put it in the table in order correctly
+        data.reverse();
+
+        let mut table = Vec::new();
+        table.push(buf.split_off(0));
+
+        for y in 0..yl {
+            // add the row "header"
+            buf.push(row_head[y].to_string());
+
+            for _ in 0..xl {
+                if let Some(d) = data.pop() {
+                    buf.push(d.to_string());
+                } else {
+                    break;
+                }
+            }
+
+            table.push(buf.split_off(0));
+        }
+
+        Ok(table)
+    }
 }
 
 /// Definitions for a binary, metadata
 #[derive(Debug, Clone)]
 pub struct BinaryDefinition {
     pub info: DefinitionInfo,
-    pub constants: Vec<Constant>,
+    pub scalars: Vec<Scalar>,
     pub tables: Vec<Table>,
 }
 
@@ -313,7 +358,7 @@ impl BinaryDefinition {
         }
         Self {
             info: DefinitionInfo::from_xdf(xdf.header.unwrap()),
-            constants: xdf.constants.into_iter().map(Constant::from_xdf).collect(),
+            scalars: xdf.constants.into_iter().map(Scalar::from_xdf).collect(),
             tables: xdf
                 .tables
                 .into_iter()
