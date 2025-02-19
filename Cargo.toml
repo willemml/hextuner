@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 crossterm = "0.28.1"
-iced = "0.13.1"
+iced = { version = "0.13.1", features = ["lazy"] }
 xdftuneparser = { version = "0.0.1", path = "../xdftuneparser" }

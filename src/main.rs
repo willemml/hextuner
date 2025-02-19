@@ -1,17 +1,20 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
 
-use definitions::{BinaryDefinition, Scalar, Table};
+use definitions::{Scalar, Table};
 
-use iced::widget::{pane_grid, PaneGrid};
-use iced::Task;
+use iced::widget::pane_grid;
+use iced::{Element, Task};
 use views::map_nav::MapNav;
-use views::table::TableView;
+use views::panes::{PaneAction, PaneContent};
+use views::table::EditSource;
 use xdftuneparser::data_types::XDFElement;
 use xdftuneparser::parse_buffer;
 
 pub mod definitions;
 pub mod eval;
+
 mod views;
 
 #[derive(Debug)]
@@ -59,20 +62,17 @@ impl<RW: std::io::Write> std::io::Write for RWGuarded<RW> {
         self.inner.lock().unwrap().flush()
     }
 }
-pub enum Pane {
-    Table(TableView),
-    Nav(MapNav),
-}
 
 // TODO: use internal IDs instead of filenames
 // TODO: move binary to ram for editing, write to different filename
 //       avoid keeping files open longer than necessary?
 pub struct App {
-    /// Definitions, mapped to their names
-    definition: BinaryDefinition,
     /// Binaries, mapped to their names and corresponding definition
     binary: FileGuard,
-    panes: pane_grid::State<Pane>,
+    panes: pane_grid::State<views::panes::Pane>,
+    panes_created: usize,
+    pane_id_map: HashMap<usize, pane_grid::Pane>,
+    focus: Option<pane_grid::Pane>,
 }
 
 impl App {
@@ -80,40 +80,133 @@ impl App {
         let mut nav = MapNav::default();
         nav.tables = def.tables.clone();
         nav.scalars = def.scalars.clone();
-        let (panes, _) = pane_grid::State::new(Pane::Nav(nav));
+        let (panes, nav_pane) = pane_grid::State::new(views::panes::Pane::nav(def.clone()));
+        let mut pane_id_map = HashMap::new();
+        pane_id_map.insert(0, nav_pane.clone());
         Self {
-            definition: def,
             binary: FileGuard::from(bin),
             panes,
+            panes_created: 1,
+            pane_id_map,
+            focus: Some(nav_pane),
         }
     }
-    fn view(&self) -> PaneGrid<Message> {
-        pane_grid(&self.panes, |_state, pane, _| {
-            pane_grid::Content::new(match pane {
-                Pane::Table(v) => iced::Element::from(v.view()),
-                Pane::Nav(m) => m.view().into(),
-            })
-        })
+    fn view(&self) -> Element<Message> {
+        views::panes::view_grid(self)
     }
     fn update(&mut self, message: Message) {
         match message {
-            Message::OpenTable(t) => {
-                self.panes.split(
-                    pane_grid::Axis::Vertical,
-                    self.panes.iter().last().unwrap().0.clone(),
-                    Pane::Table(TableView::new(t, self.binary.clone())),
-                );
+            Message::Open(kind) => views::panes::open(self, kind, self.binary.clone()),
+            Message::EditCell {
+                value,
+                pane,
+                source,
+            } => {
+                let pane = self.pane_id_map.get(&pane).unwrap();
+                if let PaneContent::Table(table_view) =
+                    &mut self.panes.get_mut(*pane).unwrap().content
+                {
+                    match source {
+                        EditSource::YHead(n) => table_view.y_head[n] = value,
+                        EditSource::XHead(n) => table_view.x_head[n] = value,
+                        EditSource::Data { x, y } => table_view.data[y][x] = value,
+                    }
+                }
             }
-            _ => {}
+            Message::WriteTable { pane } => {
+                let pane = self.pane_id_map.get(&pane).unwrap();
+                if let PaneContent::Table(table_view) =
+                    &mut self.panes.get_mut(*pane).unwrap().content
+                {
+                    table_view
+                        .table
+                        .x
+                        .write(
+                            &mut table_view.source,
+                            table_view
+                                .x_head
+                                .iter()
+                                .map(|s| s.parse().unwrap())
+                                .collect(),
+                        )
+                        .unwrap();
+                    table_view
+                        .table
+                        .y
+                        .write(
+                            &mut table_view.source,
+                            table_view
+                                .y_head
+                                .iter()
+                                .map(|s| s.parse().unwrap())
+                                .collect(),
+                        )
+                        .unwrap();
+                    table_view
+                        .table
+                        .z
+                        .write(
+                            &mut table_view.source,
+                            table_view
+                                .data
+                                .concat()
+                                .iter()
+                                .map(|s| s.parse().unwrap())
+                                .collect(),
+                        )
+                        .unwrap();
+                }
+            }
+            Message::EditScalar { value, pane } => {
+                let pane = self.pane_id_map.get(&pane).unwrap();
+                if let PaneContent::Scalar(scalar_view) =
+                    &mut self.panes.get_mut(*pane).unwrap().content
+                {
+                    scalar_view.value = value;
+                }
+            }
+            Message::WriteScalar { pane } => {
+                let pane = self.pane_id_map.get(&pane).unwrap();
+                if let PaneContent::Scalar(scalar_view) =
+                    &mut self.panes.get_mut(*pane).unwrap().content
+                {
+                    scalar_view
+                        .scalar
+                        .write(&mut scalar_view.source, scalar_view.value.parse().unwrap())
+                        .unwrap();
+                }
+            }
+            Message::PaneAction(action) => views::panes::update_panes(self, action),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-enum Message {
-    OpenTable(Table),
-    OpenScalar(Scalar),
-    EditCell(Table, FileGuard),
+pub(crate) enum Open {
+    // Nav(BinaryDefinition),
+    Table(Table),
+    Scalar(Scalar),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum Message {
+    Open(Open),
+    EditCell {
+        value: String,
+        pane: usize,
+        source: EditSource,
+    },
+    WriteTable {
+        pane: usize,
+    },
+    EditScalar {
+        value: String,
+        pane: usize,
+    },
+    WriteScalar {
+        pane: usize,
+    },
+    PaneAction(PaneAction),
 }
 
 fn main() -> iced::Result {

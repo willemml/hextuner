@@ -1,17 +1,15 @@
-use std::any::Any;
-
 use iced::{
     widget::{
         self,
         button::{Status, Style},
-        column, scrollable, text, Column,
+        column, scrollable, text,
     },
-    Background, Color, Element, Length, Renderer, Theme,
+    Color, Element, Length, Theme,
 };
 
 use crate::{
     definitions::{Scalar, Table},
-    Message,
+    Message, Open,
 };
 
 #[derive(Default, Clone, Debug)]
@@ -36,7 +34,7 @@ impl MapNav {
             .map(|s| {
                 Element::from(
                     widget::button(text(s.name.clone()))
-                        .on_press(Message::OpenScalar(s.clone()))
+                        .on_press(Message::Open(Open::Scalar(s.clone())))
                         .width(Length::Fill)
                         .style(button_color),
                 )
@@ -49,7 +47,7 @@ impl MapNav {
             .map(|t| {
                 Element::from(
                     widget::button(text(t.name.clone()))
-                        .on_press(Message::OpenTable(t.clone()))
+                        .on_press(Message::Open(Open::Table(t.clone())))
                         .width(Length::Fill)
                         .style(button_color),
                 )
