@@ -242,7 +242,7 @@ impl Axis {
                 for val in vals {
                     let bytes = (eval_reverse(&expression, val).round() as u32).to_be_bytes();
                     for i in 0..*element_size {
-                        buf.push(bytes[bytes.len() - i]);
+                        buf.push(bytes[bytes.len() - i - 1]);
                     }
                 }
                 bin.write_all(&mut buf)
