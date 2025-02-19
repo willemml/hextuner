@@ -118,43 +118,49 @@ impl App {
                 if let PaneContent::Table(table_view) =
                     &mut self.panes.get_mut(*pane).unwrap().content
                 {
-                    table_view
-                        .table
-                        .x
-                        .write(
-                            &mut table_view.source,
-                            table_view
-                                .x_head
-                                .iter()
-                                .map(|s| s.parse().unwrap())
-                                .collect(),
-                        )
-                        .unwrap();
-                    table_view
-                        .table
-                        .y
-                        .write(
-                            &mut table_view.source,
-                            table_view
-                                .y_head
-                                .iter()
-                                .map(|s| s.parse().unwrap())
-                                .collect(),
-                        )
-                        .unwrap();
-                    table_view
-                        .table
-                        .z
-                        .write(
-                            &mut table_view.source,
-                            table_view
-                                .data
-                                .concat()
-                                .iter()
-                                .map(|s| s.parse().unwrap())
-                                .collect(),
-                        )
-                        .unwrap();
+                    if table_view.table.x.writeable() {
+                        table_view
+                            .table
+                            .x
+                            .write(
+                                &mut table_view.source,
+                                table_view
+                                    .x_head
+                                    .iter()
+                                    .map(|s| s.parse().unwrap())
+                                    .collect(),
+                            )
+                            .unwrap();
+                    }
+                    if table_view.table.y.writeable() {
+                        table_view
+                            .table
+                            .y
+                            .write(
+                                &mut table_view.source,
+                                table_view
+                                    .y_head
+                                    .iter()
+                                    .map(|s| s.parse().unwrap())
+                                    .collect(),
+                            )
+                            .unwrap();
+                    }
+                    if table_view.table.z.writeable() {
+                        table_view
+                            .table
+                            .z
+                            .write(
+                                &mut table_view.source,
+                                table_view
+                                    .data
+                                    .concat()
+                                    .iter()
+                                    .map(|s| s.parse().unwrap())
+                                    .collect(),
+                            )
+                            .unwrap();
+                    }
                 }
             }
             Message::EditScalar { value, pane } => {
