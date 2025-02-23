@@ -1,6 +1,6 @@
 use iced::{
     widget::{
-        button,
+        button, container,
         pane_grid::{self, DragEvent, ResizeEvent},
         row, text, PaneGrid,
     },
@@ -13,7 +13,7 @@ use crate::{
     FileGuard, Message,
 };
 
-use super::{map_nav::MapNav, scalar::ScalarView, table::TableView};
+use super::{error::ErrorView, map_nav::MapNav, scalar::ScalarView, table::TableView};
 
 pub struct Pane {
     is_pinned: bool,
@@ -46,11 +46,19 @@ impl Pane {
             content: PaneContent::Scalar(ScalarView::new(id, scalar, file)),
         }
     }
+    pub fn error(error: String) -> Self {
+        Self {
+            is_pinned: false,
+            title: "Error!".to_string(),
+            content: PaneContent::Error(ErrorView::new(error)),
+        }
+    }
 }
 pub enum PaneContent {
     Table(TableView),
     Nav(MapNav),
     Scalar(ScalarView),
+    Error(ErrorView),
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +99,7 @@ pub fn update_panes(app: &mut crate::App, action: PaneAction) {
     }
 }
 
-pub fn open(app: &mut crate::App, kind: crate::Open, binary: FileGuard) {
+pub fn open(app: &mut crate::App, kind: crate::Open, binary: FileGuard) -> Option<pane_grid::Pane> {
     let id = app.panes_created;
     app.panes_created += 1;
 
@@ -101,11 +109,15 @@ pub fn open(app: &mut crate::App, kind: crate::Open, binary: FileGuard) {
             .unwrap_or(app.panes.iter().last().unwrap().0.clone()),
         match kind {
             // crate::Open::Nav(binary_definition) => Pane::nav(binary_definition),
+            crate::Open::Error(error) => Pane::error(error),
             crate::Open::Table(table) => Pane::table(table, binary, id),
             crate::Open::Scalar(scalar) => Pane::scalar(scalar, binary, id),
         },
     ) {
         app.pane_id_map.insert(id, pane);
+        Some(pane)
+    } else {
+        None
     }
 }
 
@@ -141,10 +153,15 @@ pub fn view_grid<'a>(app: &crate::App) -> Element<Message> {
                 style::title_bar_active
             });
 
-        pane_grid::Content::new(iced::widget::responsive(|_size| match &pane.content {
-            PaneContent::Table(v) => iced::Element::from(v.view()),
-            PaneContent::Nav(m) => m.view().into(),
-            PaneContent::Scalar(s) => s.view(),
+        pane_grid::Content::new(iced::widget::responsive(|_size| {
+            container(match &pane.content {
+                PaneContent::Table(v) => v.view(),
+                PaneContent::Nav(m) => m.view(),
+                PaneContent::Scalar(s) => s.view(),
+                PaneContent::Error(e) => e.view(),
+            })
+            .clip(true)
+            .into()
         }))
         .style(if is_focused {
             style::pane_focused

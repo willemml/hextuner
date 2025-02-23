@@ -11,6 +11,7 @@
 // this based on stored value bit precision.
 // (eval raw::MAX and raw ::MIN)
 
+use core::f64;
 use std::{
     collections::HashMap,
     io::{Read, Seek, Write},
@@ -135,6 +136,39 @@ impl Axis {
             AxisData::Binary { .. } => true,
         }
     }
+    pub fn range(&self) -> Option<(f64, f64)> {
+        if let AxisData::Binary {
+            element_size,
+            expression,
+            ..
+        } = &self.data
+        {
+            let mut bytes = [0u8; 4];
+            for i in 0..*element_size {
+                bytes[i] = 0xFF;
+            }
+
+            let num = u32::from_be_bytes(bytes);
+
+            Some((eval(&expression, 0), eval(&expression, num)))
+        } else {
+            None
+        }
+    }
+    pub fn precision(&self) -> Option<usize> {
+        if let AxisData::Binary { expression, .. } = &self.data {
+            let avg = (0..20)
+                .map(|n| eval(&expression, n))
+                .map_windows(|[a, b]| (a - b).abs())
+                .reduce(|a, e| a + e)
+                .unwrap()
+                / 20.0;
+
+            Some(avg.recip().log10().round() as usize + 1)
+        } else {
+            None
+        }
+    }
     pub fn from_xdf(xdf: XDFAxis, linked: Option<&HashMap<u32, (EmbeddedData, Math)>>) -> Self {
         // If there are no labels this must be an internally defined axis
         let data = if xdf.labels.is_empty() {
@@ -222,6 +256,15 @@ impl Axis {
                 Ok(result)
             }
         }
+    }
+    pub fn read_strings<R: Read + Seek>(&self, bin: &mut R) -> Result<Vec<String>, std::io::Error> {
+        let floats = self.read(bin)?;
+
+        Ok(if let Some(p) = self.precision() {
+            floats.iter().map(|v| format!("{:.p$}", v)).collect()
+        } else {
+            floats.iter().map(f64::to_string).collect()
+        })
     }
     pub fn write<W: Write + Seek>(
         &self,

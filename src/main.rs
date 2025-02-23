@@ -1,7 +1,12 @@
+#![feature(iterator_try_collect)]
+#![feature(iter_map_windows)]
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
 
+use anyhow::anyhow;
+use anyhow::bail;
 use definitions::{Scalar, Table};
 
 use iced::widget::pane_grid;
@@ -75,6 +80,33 @@ pub struct App {
     focus: Option<pane_grid::Pane>,
 }
 
+macro_rules! get_pane_content {
+    ($type:ident, $app:ident, $pane:ident) => {{
+        let pane = $app
+            .pane_id_map
+            .get(&$pane)
+            .ok_or(anyhow!("Fatal: Pane ID not in map"))?;
+        if let PaneContent::$type(content) = &mut $app
+            .panes
+            .get_mut(*pane)
+            .ok_or(anyhow!("Fatal: Pane has been deleted"))?
+            .content
+        {
+            content
+        } else {
+            bail!("Fatal: Wrong pane")
+        }
+    }};
+}
+
+macro_rules! write_table_axis {
+    ($axis:expr, $data:expr, $file:expr) => {{
+        if $axis.writeable() {
+            $axis.write(&mut $file, $data.map(|s| s.parse()).try_collect()?)?;
+        }
+    }};
+}
+
 impl App {
     fn new(bin: File, def: definitions::BinaryDefinition) -> Self {
         let mut nav = MapNav::default();
@@ -95,95 +127,61 @@ impl App {
         views::panes::view_grid(self)
     }
     fn update(&mut self, message: Message) {
+        if let Err(e) = self.try_update(message) {
+            let pane = views::panes::open(self, Open::Error(e.to_string()), self.binary.clone())
+                .expect("Failed to display error message!");
+            self.panes.maximize(pane);
+        }
+    }
+    fn try_update(&mut self, message: Message) -> anyhow::Result<()> {
         match message {
-            Message::Open(kind) => views::panes::open(self, kind, self.binary.clone()),
+            Message::Open(kind) => {
+                views::panes::open(self, kind, self.binary.clone());
+            }
             Message::EditCell {
                 value,
                 pane,
                 source,
             } => {
-                let pane = self.pane_id_map.get(&pane).unwrap();
-                if let PaneContent::Table(table_view) =
-                    &mut self.panes.get_mut(*pane).unwrap().content
-                {
-                    match source {
-                        EditSource::YHead(n) => table_view.y_head[n] = value,
-                        EditSource::XHead(n) => table_view.x_head[n] = value,
-                        EditSource::Data { x, y } => table_view.data[y][x] = value,
-                    }
+                let table_view = get_pane_content!(Table, self, pane);
+                match source {
+                    EditSource::YHead(n) => table_view.y_head[n] = value,
+                    EditSource::XHead(n) => table_view.x_head[n] = value,
+                    EditSource::Data(n) => table_view.data[n] = value,
                 }
             }
+
             Message::WriteTable { pane } => {
-                let pane = self.pane_id_map.get(&pane).unwrap();
-                if let PaneContent::Table(table_view) =
-                    &mut self.panes.get_mut(*pane).unwrap().content
-                {
-                    if table_view.table.x.writeable() {
-                        table_view
-                            .table
-                            .x
-                            .write(
-                                &mut table_view.source,
-                                table_view
-                                    .x_head
-                                    .iter()
-                                    .map(|s| s.parse().unwrap())
-                                    .collect(),
-                            )
-                            .unwrap();
-                    }
-                    if table_view.table.y.writeable() {
-                        table_view
-                            .table
-                            .y
-                            .write(
-                                &mut table_view.source,
-                                table_view
-                                    .y_head
-                                    .iter()
-                                    .map(|s| s.parse().unwrap())
-                                    .collect(),
-                            )
-                            .unwrap();
-                    }
-                    if table_view.table.z.writeable() {
-                        table_view
-                            .table
-                            .z
-                            .write(
-                                &mut table_view.source,
-                                table_view
-                                    .data
-                                    .concat()
-                                    .iter()
-                                    .map(|s| s.parse().unwrap())
-                                    .collect(),
-                            )
-                            .unwrap();
-                    }
-                }
+                let table_view = get_pane_content!(Table, self, pane);
+                write_table_axis!(
+                    table_view.table.x,
+                    table_view.x_head.iter(),
+                    table_view.source
+                );
+                write_table_axis!(
+                    table_view.table.y,
+                    table_view.y_head.iter(),
+                    table_view.source
+                );
+                write_table_axis!(
+                    table_view.table.z,
+                    table_view.data.iter(),
+                    table_view.source
+                );
             }
             Message::EditScalar { value, pane } => {
-                let pane = self.pane_id_map.get(&pane).unwrap();
-                if let PaneContent::Scalar(scalar_view) =
-                    &mut self.panes.get_mut(*pane).unwrap().content
-                {
-                    scalar_view.value = value;
-                }
+                let scalar_view = get_pane_content!(Scalar, self, pane);
+                scalar_view.value = value;
             }
             Message::WriteScalar { pane } => {
-                let pane = self.pane_id_map.get(&pane).unwrap();
-                if let PaneContent::Scalar(scalar_view) =
-                    &mut self.panes.get_mut(*pane).unwrap().content
-                {
-                    scalar_view
-                        .scalar
-                        .write(&mut scalar_view.source, scalar_view.value.parse().unwrap())
-                        .unwrap();
-                }
+                let scalar_view = get_pane_content!(Scalar, self, pane);
+                scalar_view
+                    .scalar
+                    .write(&mut scalar_view.source, scalar_view.value.parse()?)?;
             }
             Message::PaneAction(action) => views::panes::update_panes(self, action),
         }
+        Ok(())
     }
 }
 
@@ -192,6 +190,7 @@ pub(crate) enum Open {
     // Nav(BinaryDefinition),
     Table(Table),
     Scalar(Scalar),
+    Error(String),
 }
 
 #[derive(Debug, Clone)]

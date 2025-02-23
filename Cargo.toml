@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.96"
 crossterm = "0.28.1"
 iced = { version = "0.13.1", features = ["lazy"] }
+iced_aw = "0.12.0"
+iced_table = "0.13.0"
 xdftuneparser = { version = "0.0.1", path = "../xdftuneparser" }

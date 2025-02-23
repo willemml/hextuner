@@ -1,3 +1,4 @@
+pub mod error;
 pub mod load_file;
 pub mod map_nav;
 pub mod panes;
