@@ -9,6 +9,7 @@ use anyhow::anyhow;
 use anyhow::bail;
 use definitions::{Scalar, Table};
 
+use iced::advanced::widget::operation::scrollable;
 use iced::widget::pane_grid;
 use iced::{Element, Task};
 use views::map_nav::MapNav;
@@ -144,30 +145,30 @@ impl App {
                 source,
             } => {
                 let table_view = get_pane_content!(Table, self, pane);
-                match source {
-                    EditSource::YHead(n) => table_view.y_head[n] = value,
-                    EditSource::XHead(n) => table_view.x_head[n] = value,
-                    EditSource::Data(n) => table_view.data[n] = value,
-                }
+                // match source {
+                //     EditSource::YHead(n) => table_view.y_head[n] = value,
+                //     EditSource::XHead(n) => table_view.x_head[n] = value,
+                //     EditSource::Data(n) => table_view.data[n] = value,
+                // }
             }
 
             Message::WriteTable { pane } => {
                 let table_view = get_pane_content!(Table, self, pane);
-                write_table_axis!(
-                    table_view.table.x,
-                    table_view.x_head.iter(),
-                    table_view.source
-                );
-                write_table_axis!(
-                    table_view.table.y,
-                    table_view.y_head.iter(),
-                    table_view.source
-                );
-                write_table_axis!(
-                    table_view.table.z,
-                    table_view.data.iter(),
-                    table_view.source
-                );
+                // write_table_axis!(
+                //     table_view.table.x,
+                //     table_view.x_head.iter(),
+                //     table_view.source
+                // );
+                // write_table_axis!(
+                //     table_view.table.y,
+                //     table_view.y_head.iter(),
+                //     table_view.source
+                // );
+                // write_table_axis!(
+                //     table_view.table.z,
+                //     table_view.data.iter(),
+                //     table_view.source
+                // );
             }
             Message::EditScalar { value, pane } => {
                 let scalar_view = get_pane_content!(Scalar, self, pane);
@@ -194,6 +195,13 @@ pub(crate) enum Open {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) enum TableUpdate {
+    SyncHeader(scrollable::AbsoluteOffset),
+    Resizing(usize, f32),
+    Resized,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) enum Message {
     Open(Open),
     EditCell {
@@ -210,6 +218,10 @@ pub(crate) enum Message {
     },
     WriteScalar {
         pane: usize,
+    },
+    TableUpdate {
+        pane: usize,
+        message: TableUpdate,
     },
     PaneAction(PaneAction),
 }
