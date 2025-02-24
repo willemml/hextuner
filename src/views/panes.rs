@@ -104,7 +104,7 @@ pub fn open(app: &mut crate::App, kind: crate::Open, binary: FileGuard) -> Optio
     app.panes_created += 1;
 
     if let Some((pane, _)) = app.panes.split(
-        pane_grid::Axis::Vertical,
+        pane_grid::Axis::Horizontal,
         app.focus
             .unwrap_or(app.panes.iter().last().unwrap().0.clone()),
         match kind {

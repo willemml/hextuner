@@ -11,6 +11,7 @@ use definitions::{Scalar, Table};
 
 use iced::widget::pane_grid;
 use iced::{Element, Task};
+use rfd::FileDialog;
 use views::map_nav::MapNav;
 use views::panes::{PaneAction, PaneContent};
 use views::table::EditSource;
@@ -215,14 +216,26 @@ pub(crate) enum Message {
 }
 
 fn main() -> iced::Result {
-    let xdf = File::open("testfiles/8E0909518AK_368072_NEF_STG_1v7.xdf").unwrap();
+    // let xdf_path = FileDialog::new()
+    //     .add_filter("XDF", &["xdf"])
+    //     .set_directory("/")
+    //     .pick_file()
+    //     .unwrap();
+
+    let xdf = File::open("testfiles/8E0909518AK_368072_TylerW.xdf").unwrap();
 
     let xdf_parsed = parse_buffer(xdf).unwrap().unwrap();
+
+    let bin_path = FileDialog::new()
+        .add_filter("BIN", &["bin"])
+        .set_directory("/")
+        .pick_file()
+        .unwrap();
 
     let bin = File::options()
         .write(true)
         .read(true)
-        .open("testfiles/test.bin")
+        .open(bin_path)
         .unwrap();
 
     let def = if let XDFElement::XDFFormat(xdf) = xdf_parsed {
