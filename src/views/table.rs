@@ -1,13 +1,7 @@
 use iced::{
     advanced::graphics::color,
     clipboard::write,
-    widget::{
-        column, container, responsive, row,
-        scrollable::{self, AbsoluteOffset},
-        text,
-        text_input::Style,
-        Row, TextInput,
-    },
+    widget::{column, container, row, scrollable, text, text_input::Style, Row, TextInput},
     Border, Color, Element, Length, Renderer, Theme,
 };
 use iced_aw::{Grid, GridRow};
@@ -25,12 +19,10 @@ enum CellStyle {
 #[derive(Debug)]
 pub struct TableView {
     pane_id: usize,
-    columns: Vec<Column>,
-    rows: Vec<Vec<Cell>>,
-    header: scrollable::Id,
-    body: scrollable::Id,
-    footer: scrollable::Id,
-    table: Table,
+    pub table: Table,
+    pub x_head: Vec<String>,
+    pub y_head: Vec<String>,
+    pub data: Vec<String>,
     pub source: FileGuard,
 }
 
@@ -43,86 +35,80 @@ pub enum EditSource {
 
 impl TableView {
     pub fn new(pane_id: usize, table: Table, mut source: FileGuard) -> Self {
-        let col_write = table.x.writeable();
-        let columns = table
-            .x
-            .read_strings(&mut source)
-            .unwrap()
-            .into_iter()
-            .map(|s| {
-                Column::new(
-                    if col_write {
-                        Cell::Edit(s)
-                    } else {
-                        Cell::Constant(s)
-                    },
-                    pane_id,
-                )
-            })
-            .collect();
-
-        let row_write = table.y.writeable();
-        let mut rows: Vec<Vec<Cell>> = table
-            .y
-            .read_strings(&mut source)
-            .unwrap()
-            .into_iter()
-            .map(|s| {
-                vec![if row_write {
-                    Cell::Edit(s)
-                } else {
-                    Cell::Constant(s)
-                }]
-            })
-            .collect();
-        let mut data = table.z.read_strings(&mut source).unwrap().into_iter();
-
-        for y in 0..rows.len() {
-            for _ in 0..table.x.len() {
-                rows[y].push(Cell::Edit(data.next().unwrap()));
-            }
-        }
+        let x_head: Vec<String> = table.x.read_strings(&mut source).unwrap();
+        let y_head = table.y.read_strings(&mut source).unwrap();
+        let data = table.z.read_strings(&mut source).unwrap();
 
         Self {
             pane_id,
-            columns,
-            rows,
             table,
+            x_head,
+            y_head,
+            data,
             source,
-            header: scrollable::Id::unique(),
-            body: scrollable::Id::unique(),
-            footer: scrollable::Id::unique(),
+        }
+    }
+
+    fn cell<'a>(
+        &'a self,
+        value: &'a str,
+        source: EditSource,
+        _style: CellStyle,
+        writeable: bool,
+    ) -> Element<'a, Message> {
+        if writeable {
+            TextInput::new("", value)
+                .on_input(move |value| Message::EditCell {
+                    value,
+                    pane: self.pane_id,
+                    source,
+                })
+                .on_submit(Message::WriteTable { pane: self.pane_id })
+                .into()
+        } else {
+            Element::from(value)
         }
     }
 
     pub fn view(&self) -> Element<Message> {
-        let table = responsive(|size| {
-            let pane_id = self.pane_id;
+        let x_writeable = self.table.x.writeable() && false;
+        let y_writeable = self.table.y.writeable() && false;
+        let data_writeable = self.table.z.writeable() && false;
 
-            let message = |offset: AbsoluteOffset| Message::TableUpdate {
-                pane: pane_id,
-                message: crate::TableUpdate::SyncHeader(o),
-            };
+        let mut rows: Vec<GridRow<Message>> = Vec::new();
+        let mut first_row = GridRow::with_elements(vec![Element::from("")]);
+        for x in self
+            .x_head
+            .iter()
+            .enumerate()
+            .map(|(x, xv)| self.cell(xv, EditSource::XHead(x), CellStyle::Head, x_writeable))
+        {
+            first_row = first_row.push(x);
+        }
+        rows.push(first_row);
 
-            let mut table = table(
-                self.header.clone(),
-                self.body.clone(),
-                &self.columns,
-                &self.rows,
-                message,
-            );
+        let mut i = 0;
+        for (y, yv) in self.y_head.iter().enumerate() {
+            let mut grid_row = Vec::new();
+            grid_row.push(self.cell(yv, EditSource::YHead(y), CellStyle::Head, y_writeable));
 
-            table.into()
-        });
-        container(container(table).width(Length::Fill).height(Length::Fill))
-            .padding(20)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .into()
+            for _ in 0..self.x_head.len() {
+                grid_row.push(self.cell(
+                    &self.data[i],
+                    EditSource::Data(i),
+                    CellStyle::Normal,
+                    data_writeable,
+                ));
+                i += 1;
+            }
+
+            rows.push(GridRow::with_elements(grid_row));
+        }
+
+        Grid::with_rows(rows).into()
     }
 }
 
-#[derive(Debug)]
 enum Cell {
     Blank,
     Edit(String),
@@ -145,7 +131,6 @@ impl Cell {
     }
 }
 
-#[derive(Debug)]
 struct Column {
     width: f32,
     header: Cell,
