@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use iced::{
     widget::{
         self,
@@ -16,6 +18,7 @@ use crate::{
 pub struct MapNav {
     pub tables: Vec<Table>,
     pub scalars: Vec<Scalar>,
+    pub categories: HashMap<u32, String>,
 }
 
 fn button_color(_: &Theme, status: Status) -> Style {
@@ -28,38 +31,61 @@ fn button_color(_: &Theme, status: Status) -> Style {
 
 impl MapNav {
     pub fn view(&self) -> Element<Message> {
-        let scalars: Vec<Element<Message>> = self
-            .scalars
-            .iter()
-            .map(|s| {
-                Element::from(
-                    widget::button(text(s.name.clone()))
-                        .on_press(Message::Open(Open::Scalar(s.clone())))
-                        .width(Length::Fill)
-                        .style(button_color),
-                )
-            })
-            .collect();
+        let categories = column(self.categories.iter().map(|(index, name)| {
+            let mut column = column![text(name).size(30)];
+            let scalars: Vec<Element<Message>> = self
+                .scalars
+                .iter()
+                .filter_map(|s| {
+                    if s.categories.contains(index) {
+                        Some(Element::from(
+                            widget::button(text(s.name.clone()))
+                                .on_press(Message::Open(Open::Scalar(s.clone())))
+                                .width(Length::Fill)
+                                .style(button_color),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
-        let tables: Vec<Element<Message>> = self
-            .tables
-            .iter()
-            .map(|t| {
-                Element::from(
-                    widget::button(text(t.name.clone()))
-                        .on_press(Message::Open(Open::Table(t.clone())))
-                        .width(Length::Fill)
-                        .style(button_color),
-                )
-            })
-            .collect();
+            let tables: Vec<Element<Message>> = self
+                .tables
+                .iter()
+                .filter_map(|t| {
+                    if t.categories.contains(index) {
+                        Some(Element::from(
+                            widget::button(text(t.name.clone()))
+                                .on_press(Message::Open(Open::Table(t.clone())))
+                                .width(Length::Fill)
+                                .style(button_color),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
-        scrollable(column![
-            text("Scalars").size(20),
-            column(scalars),
-            text("Tables").size(20),
-            column(tables)
-        ])
-        .into()
+            let scalars_empty = scalars.is_empty();
+
+            if !scalars_empty {
+                if !tables.is_empty() {
+                    column = column.push(text("Scalars").size(20));
+                }
+                column = column.extend(scalars);
+            }
+
+            if !tables.is_empty() {
+                if !scalars_empty {
+                    column = column.push(text("Tables").size(20));
+                }
+                column = column.extend(tables);
+            }
+
+            Element::from(column)
+        }));
+
+        scrollable(categories).into()
     }
 }

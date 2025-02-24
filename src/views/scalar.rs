@@ -29,6 +29,7 @@ impl ScalarView {
                 pane: self.pane_id,
             })
             .on_submit(Message::WriteScalar { pane: self.pane_id })
+            .width(100)
             .into()
     }
 }

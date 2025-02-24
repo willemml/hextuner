@@ -226,16 +226,16 @@ fn main() -> iced::Result {
 
     let xdf_parsed = parse_buffer(xdf).unwrap().unwrap();
 
-    let bin_path = FileDialog::new()
-        .add_filter("BIN", &["bin"])
-        .set_directory("/")
-        .pick_file()
-        .unwrap();
+    // let bin_path = FileDialog::new()
+    //     .add_filter("BIN", &["bin"])
+    //     .set_directory("/")
+    //     .pick_file()
+    //     .unwrap();
 
     let bin = File::options()
         .write(true)
         .read(true)
-        .open(bin_path)
+        .open("testfiles/test.bin")
         .unwrap();
 
     let def = if let XDFElement::XDFFormat(xdf) = xdf_parsed {

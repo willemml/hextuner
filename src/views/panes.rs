@@ -25,6 +25,7 @@ impl Pane {
         Self {
             is_pinned: true,
             content: PaneContent::Nav(MapNav {
+                categories: bin_def.info.categories,
                 tables: bin_def.tables,
                 scalars: bin_def.scalars,
             }),

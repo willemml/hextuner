@@ -38,11 +38,21 @@ fn bytes_to_u32(bytes: &[u8]) -> u32 {
 pub struct DefinitionInfo {
     pub name: String,
     pub description: String,
+    pub categories: HashMap<u32, String>,
 }
 
 impl DefinitionInfo {
     pub fn from_xdf(xdf: XDFHeader) -> Self {
+        let mut categories = HashMap::new();
+
+        for Category { index, name } in xdf.category {
+            if let Some(index) = index {
+                categories.insert(index, name.unwrap_or(format!("{:x}", index)));
+            }
+        }
+
         Self {
+            categories,
             name: xdf.deftitle.unwrap_or_default(),
             description: xdf.description.unwrap_or_default(),
         }
@@ -60,6 +70,7 @@ pub struct Scalar {
     pub size: usize,
     /// Equation to convert between integer representation and human readable value
     pub expression: String,
+    pub categories: Vec<u32>,
 }
 
 impl Scalar {
@@ -71,8 +82,10 @@ impl Scalar {
         let name = xdf.title.unwrap_or_default();
         let description = xdf.description.unwrap_or_default();
         let expression = math.expression.unwrap_or_default();
+        let categories = xdf.catmem.into_iter().filter_map(|c| c.category).collect();
 
         Self {
+            categories,
             name,
             description,
             address,
@@ -305,6 +318,7 @@ pub struct Table {
     pub y: Axis,
     /// Primary map axis
     pub z: Axis,
+    pub categories: Vec<u32>,
 }
 
 impl Table {
@@ -314,6 +328,11 @@ impl Table {
     ) -> Self {
         let name = xdf.title.unwrap_or_default();
         let description = xdf.description.unwrap_or_default();
+        let categories = xdf
+            .catmem
+            .into_iter()
+            .filter_map(|c| c.category.map(|v| v - 1))
+            .collect();
 
         // Test file always has 3 axis per table, should be updated later.
         assert_eq!(xdf.axis.len(), 3);
@@ -327,6 +346,7 @@ impl Table {
         let x = Axis::from_xdf(xdf.axis.pop().unwrap(), linked);
 
         Self {
+            categories,
             name,
             description,
             x,
