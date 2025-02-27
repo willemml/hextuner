@@ -8,5 +8,10 @@ anyhow = "1.0.96"
 crossterm = "0.28.1"
 iced = { version = "0.13.1", features = ["lazy"] }
 iced_aw = "0.12.0"
+plotters = "0.3.7"
+plotters-iced = "0.11.0"
 rfd = "0.15.2"
 xdftuneparser = { version = "0.0.1", path = "../xdftuneparser" }
+
+[patch.crates-io]
+pathfinder_simd = { git = "https://github.com/theoparis/pathfinder.git" }
