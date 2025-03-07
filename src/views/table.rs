@@ -1,3 +1,5 @@
+use std::f64::consts::PI;
+
 use iced::{
     widget::{
         canvas::{Cache, Frame, Geometry},
@@ -116,16 +118,16 @@ impl TableView {
             }),
             column![
                 iced::widget::text("Pitch:"),
-                iced::widget::slider(0.0..=std::f64::consts::PI, self.chart.pitch, |v| {
+                iced::widget::slider(-PI..=PI, self.chart.pitch, |v| {
                     Message::GraphPitch(self.pane_id, v)
                 })
-                .step(std::f64::consts::PI / 300.0)
+                .step(PI / 300.0)
                 .width(Length::Fixed(300.0)),
                 iced::widget::text("Yaw:"),
-                iced::widget::slider(0.0..=std::f64::consts::PI, self.chart.yaw, |v| {
+                iced::widget::slider(-PI..=PI, self.chart.yaw, |v| {
                     Message::GraphYaw(self.pane_id, v)
                 })
-                .step(std::f64::consts::PI / 300.0)
+                .step(PI / 300.0)
                 .width(Length::Fixed(300.0))
             ],
             ChartWidget::new(&self.chart)
