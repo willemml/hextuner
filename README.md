@@ -20,10 +20,10 @@ Here is a screenshot of the UI. As you can see 3D graphs are somewhat broken.
 
 Mostly from greatest to lowest priority, not set in stone:
 - UI for editing bins **done**
-- Graphs to visualize maps
+- Graphs to visualize maps **done**
 - Live comparison of different bins
 - Built in checksumming
-- Bootmode and or KWP2000 flashing
+- Bootmode and or KWP2000 flashing **[in progress](https://github.com/willemml/kwp2000-rs)**
 - GUI app, non TUI **done**
 - Definition editing
 
