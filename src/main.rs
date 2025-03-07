@@ -151,7 +151,6 @@ impl App {
                     EditSource::Data(n) => table_view.data[n] = value,
                 }
             }
-
             Message::WriteTable { pane } => {
                 let table_view = get_pane_content!(Table, self, pane);
                 write_table_axis!(
@@ -169,6 +168,9 @@ impl App {
                     table_view.data.iter(),
                     table_view.source
                 );
+                table_view
+                    .chart
+                    .update(&table_view.x_head, &table_view.y_head, &table_view.data);
             }
             Message::EditScalar { value, pane } => {
                 let scalar_view = get_pane_content!(Scalar, self, pane);
@@ -181,6 +183,14 @@ impl App {
                     .write(&mut scalar_view.source, scalar_view.value.parse()?)?;
             }
             Message::PaneAction(action) => views::panes::update_panes(self, action),
+            Message::GraphPitch(pane, ps) => {
+                let table_view = get_pane_content!(Table, self, pane);
+                table_view.chart.pitch(ps);
+            }
+            Message::GraphYaw(pane, ys) => {
+                let table_view = get_pane_content!(Table, self, pane);
+                table_view.chart.yaw(ys);
+            }
         }
         Ok(())
     }
@@ -212,30 +222,34 @@ pub(crate) enum Message {
     WriteScalar {
         pane: usize,
     },
+    GraphPitch(usize, f64),
+    GraphYaw(usize, f64),
     PaneAction(PaneAction),
 }
 
 fn main() -> iced::Result {
-    // let xdf_path = FileDialog::new()
-    //     .add_filter("XDF", &["xdf"])
-    //     .set_directory("/")
-    //     .pick_file()
-    //     .unwrap();
+    let xdf_path = FileDialog::new()
+        .add_filter("XDF", &["xdf"])
+        .set_directory("/")
+        .pick_file()
+        .unwrap();
+    // let xdf_path = "./testfiles/xdf";
 
-    let xdf = File::open("testfiles/8E0909518AK_368072_TylerW.xdf").unwrap();
+    let xdf = File::open(xdf_path).unwrap();
 
     let xdf_parsed = parse_buffer(xdf).unwrap().unwrap();
 
-    // let bin_path = FileDialog::new()
-    //     .add_filter("BIN", &["bin"])
-    //     .set_directory("/")
-    //     .pick_file()
-    //     .unwrap();
+    let bin_path = FileDialog::new()
+        .add_filter("BIN", &["bin"])
+        .set_directory("/")
+        .pick_file()
+        .unwrap();
+    // let bin_path = "./testfiles/bin";
 
     let bin = File::options()
         .write(true)
         .read(true)
-        .open("testfiles/test.bin")
+        .open(bin_path)
         .unwrap();
 
     let def = if let XDFElement::XDFFormat(xdf) = xdf_parsed {

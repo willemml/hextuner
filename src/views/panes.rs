@@ -68,7 +68,6 @@ pub(crate) enum PaneAction {
     Maximize(pane_grid::Pane),
     Dragged(pane_grid::DragEvent),
     Resized(pane_grid::ResizeEvent),
-    TogglePin(pane_grid::Pane),
     Clicked(pane_grid::Pane),
     Restore,
 }
@@ -90,11 +89,6 @@ pub fn update_panes(app: &mut crate::App, action: PaneAction) {
         PaneAction::Dragged(DragEvent::Dropped { pane, target }) => app.panes.drop(pane, target),
         PaneAction::Dragged(_) => {}
         PaneAction::Resized(ResizeEvent { split, ratio }) => app.panes.resize(split, ratio),
-        PaneAction::TogglePin(pane) => {
-            if let Some(Pane { is_pinned, .. }) = app.panes.get_mut(pane) {
-                *is_pinned = !*is_pinned;
-            }
-        }
         PaneAction::Clicked(pane) => app.focus = Some(pane),
         PaneAction::Restore => app.panes.restore(),
     }
@@ -129,11 +123,7 @@ pub fn view_grid<'a>(app: &crate::App) -> Element<Message> {
     let pane_grid = PaneGrid::new(&app.panes, |id, pane, is_maximized| {
         let is_focused = focus == Some(id);
 
-        let pin_button = button(text(if pane.is_pinned { "Unpin" } else { "Pin" }).size(14))
-            .on_press(Message::PaneAction(PaneAction::TogglePin(id)))
-            .padding(3);
-
-        let title = row![pin_button, text(pane.title.clone())].spacing(5);
+        let title = text(pane.title.clone());
 
         let title_bar = pane_grid::TitleBar::new(title)
             .controls(pane_grid::Controls::dynamic(
